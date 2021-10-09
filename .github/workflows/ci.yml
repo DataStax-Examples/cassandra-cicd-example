@@ -1,0 +1,74 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI with Cassandra
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+  # Enables running this workflow manually
+  workflow_dispatch:
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v1
+        with:
+          version: v3.4.0
+
+      - name: Kind Cluster
+        uses: helm/kind-action@v1.2.0
+        with:
+          version: "v0.11.1"
+          node_image: kindest/node:v1.20.7
+          config: .github/config/kind-three-workers.yaml
+          cluster_name: ci-with-cass
+          wait: "120s"
+
+      - name: Install cass-operator and CassandraDatacenter
+        run: |
+          helm repo add k8ssandra https://helm.k8ssandra.io/stable
+          helm install cass-operator k8ssandra/cass-operator -n cass-operator --create-namespace
+          kubectl apply -f https://raw.githubusercontent.com/k8ssandra/cass-operator/master/operator/k8s-flavors/kind/rancher-local-path-storage.yaml
+
+          kubectl -n cass-operator apply -f https://raw.githubusercontent.com/k8ssandra/cass-operator/master/operator/example-cassdc-yaml/cassandra-3.11.x/example-cassdc-minimal.yaml
+          sleep 300
+
+          kubectl get node
+          kubectl -n cass-operator get pod
+          kubectl -n cass-operator get event           
+
+      - name: Install app
+        run: |
+          kubectl create ns myapp
+          kubectl apply -f .github/config/petclinic.yaml
+
+          # helm repo add podinfo https://stefanprodan.github.io/podinfo
+
+          # helm upgrade --install --wait frontend \
+          # --namespace myapp \
+          # --set replicaCount=2 \
+          # --set backend=http://backend-podinfo:9898/echo \
+          # podinfo/podinfo
+
+          # helm --namespace myapp test frontend
+
+          # helm upgrade --install --wait backend \
+          # --namespace myapp \
+          # --set redis.enabled=true \
+          # podinfo/podinfo
+
+
+      - name: Load data and run tests
+        run: |
+          echo Run CQL
+          echo Invoke Tests
